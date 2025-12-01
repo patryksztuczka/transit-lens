@@ -1,0 +1,17 @@
+services:
+  database:
+    image: postgis/postgis:16-3.4
+    restart: always
+    shm_size: 128mb
+    environment:
+      POSTGRES_PASSWORD: example
+      POSTGRES_USER: transit_lens_app
+      POSTGRES_DB: transit_lens
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    ports:
+      - 5432:5432
+
+volumes:
+  postgres_data:
