@@ -1,16 +1,17 @@
 import { Hono } from "hono";
 
-import books from "./handlers/books";
 import { Cron } from "croner";
 import { sql } from "./database/db";
 import { syncFeed } from "./jobs";
 import { timeout } from "hono/timeout";
 
-console.log("Hello via Bun!");
+import books from "./handlers/books";
+import stops from "./handlers/stops";
+import { cors } from "hono/cors";
 
 const app = new Hono().basePath("/api");
 
-app.use("/api", timeout(30_000));
+app.use("/*", cors());
 
 app.get("/", async (c) => {
   await syncFeed();
@@ -18,6 +19,7 @@ app.get("/", async (c) => {
 });
 
 app.route("/books", books);
+app.route("/stops", stops);
 
 // new Cron(
 //   "* * * * * *",

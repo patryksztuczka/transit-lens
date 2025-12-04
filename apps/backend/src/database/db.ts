@@ -7,11 +7,4 @@ export const sql = new SQL({
   idleTimeout: 30,
   maxLifetime: 0,
   connectionTimeout: 30,
-
-  onconnect: () => {
-    console.log("Connected to PostgreSQL");
-  },
-  onclose: () => {
-    console.log("PostgreSQL connection closed");
-  },
 });
