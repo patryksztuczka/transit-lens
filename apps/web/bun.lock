@@ -6,11 +6,13 @@
       "dependencies": {
         "@tailwindcss/vite": "^4.1.17",
         "@tanstack/react-query": "^5.90.11",
+        "clsx": "^2.1.1",
         "lucide-react": "^0.555.0",
         "mapbox-gl": "^3.16.0",
         "react": "^19.2.0",
         "react-dom": "^19.2.0",
         "recharts": "^3.5.1",
+        "tailwind-merge": "^3.4.0",
         "tailwindcss": "^4.1.17",
         "zod": "^4.1.13",
       },
@@ -647,6 +649,8 @@
     "supercluster": ["supercluster@8.0.1", "", { "dependencies": { "kdbush": "^4.0.2" } }, "sha512-IiOea5kJ9iqzD2t7QJq/cREyLHTtSmUT6gQsweojg9WH2sYJqZK9SswTu6jrscO6D1G5v5vYZ9ru/eq85lXeZQ=="],
 
     "supports-color": ["supports-color@7.2.0", "", { "dependencies": { "has-flag": "^4.0.0" } }, "sha512-qpCAvRl9stuOHveKsn7HncJRvv501qIacKzQlO/+Lwxc9+0q2wLyv4Dfvt80/DPn2pqOBsJdDiogXGR9+OvwRw=="],
+
+    "tailwind-merge": ["tailwind-merge@3.4.0", "", {}, "sha512-uSaO4gnW+b3Y2aWoWfFpX62vn2sR3skfhbjsEnaBI81WD1wBLlHZe5sWf0AqjksNdYTbGBEd0UasQMT3SNV15g=="],
 
     "tailwindcss": ["tailwindcss@4.1.17", "", {}, "sha512-j9Ee2YjuQqYT9bbRTfTZht9W/ytp5H+jJpZKiYdP/bpnXARAuELt9ofP0lPnmHjbga7SNQIxdTAXCmtKVYjN+Q=="],
 

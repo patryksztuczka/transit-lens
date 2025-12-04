@@ -1,6 +1,17 @@
 @import 'tailwindcss';
 
-.active {
-  width: 20px;
-  height: 20px;
+.mapboxgl-popup-tip {
+  @apply border-b-6 border-b-black/50!;
+}
+
+.mapboxgl-popup-active .mapboxgl-popup-tip {
+  @apply border-b-6 border-b-yellow-500!;
+}
+
+.mapboxgl-popup-content {
+  @apply rounded-md bg-black/50 p-0 px-1 text-[10px] font-medium text-white transition-all;
+}
+
+.mapboxgl-popup-active .mapboxgl-popup-content {
+  @apply rounded-md bg-yellow-500 p-0 px-2 py-1 text-xs font-medium text-black;
 }
