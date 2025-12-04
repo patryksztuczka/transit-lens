@@ -1,4 +1,4 @@
-import { Transform } from "node:stream";
+import { Transform } from 'node:stream';
 
 export function stripBOM() {
   let firstChunk = true;

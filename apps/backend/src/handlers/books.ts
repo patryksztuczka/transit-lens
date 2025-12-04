@@ -1,7 +1,9 @@
-import { Hono } from "hono";
+import { Hono } from 'hono';
 
 const app = new Hono();
 
-app.get("/", (c) => c.json("books"));
+app.get('/', async (c) => {
+  return c.json('books');
+});
 
 export default app;

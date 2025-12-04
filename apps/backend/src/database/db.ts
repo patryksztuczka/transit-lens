@@ -1,7 +1,7 @@
-import { SQL } from "bun";
+import { SQL } from 'bun';
 
 export const sql = new SQL({
-  url: "postgres://transit_lens_app:example@localhost:5432/transit_lens",
+  url: 'postgres://transit_lens_app:example@localhost:5432/transit_lens',
 
   max: 20,
   idleTimeout: 30,

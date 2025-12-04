@@ -1,8 +1,8 @@
-import unzipper from "unzipper";
-import csv from "csv-parser";
-import { Readable } from "node:stream";
-import { format, parse, subDays } from "date-fns";
-import fs from "node:fs/promises";
+import unzipper from 'unzipper';
+import csv from 'csv-parser';
+import { Readable } from 'node:stream';
+import { format, parse, subDays } from 'date-fns';
+import fs from 'node:fs/promises';
 
 import {
   agencySchema,
@@ -24,10 +24,10 @@ import {
   type StopTime,
   tripSchema,
   type Trip,
-} from "../schemas/gtfs-static";
-import { stripBOM } from "../lib/utils";
-import z from "zod";
-import { sql } from "../database/db";
+} from '../schemas/gtfs-static';
+import { stripBOM } from '../lib/utils';
+import z from 'zod';
+import { sql } from '../database/db';
 
 function parseCsvStream<T extends z.ZodType>(
   stream: Readable,
@@ -38,7 +38,7 @@ function parseCsvStream<T extends z.ZodType>(
     stream
       .pipe(stripBOM())
       .pipe(csv())
-      .on("data", (data) => {
+      .on('data', (data) => {
         const parsedResult = schema.safeParse(data);
         if (!parsedResult.success) {
           reject(parsedResult.error);
@@ -46,19 +46,19 @@ function parseCsvStream<T extends z.ZodType>(
         }
         results.push(parsedResult.data);
       })
-      .on("end", () => resolve(results))
-      .on("error", reject);
+      .on('end', () => resolve(results))
+      .on('error', reject);
   });
 }
 
 async function fetchStaticFeed(): Promise<string | null> {
   try {
     const response = await fetch(
-      "https://www.ztm.poznan.pl/pl/dla-deweloperow/getGTFSFile",
+      'https://www.ztm.poznan.pl/pl/dla-deweloperow/getGTFSFile',
       {
         headers: {
-          Accept: "application/octet-stream",
-          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: 'application/octet-stream',
+          'Content-Type': 'application/x-www-form-urlencoded',
         },
       },
     );
@@ -75,7 +75,7 @@ async function fetchStaticFeed(): Promise<string | null> {
 
     return path;
   } catch (err) {
-    console.error("Failed to fetch static feed:", err);
+    console.error('Failed to fetch static feed:', err);
     return null;
   }
 }
@@ -99,7 +99,7 @@ async function isFetchedNewFeed(path: string): Promise<FeedInfo | null> {
     const files = await fs.readdir(path);
     let feedInfoItems: FeedInfo[] = [];
     for (const file of files) {
-      if (file === "feed_info.txt") {
+      if (file === 'feed_info.txt') {
         feedInfoItems = await parseFile(`${path}/${file}`, feedInfoSchema);
       }
     }
@@ -110,14 +110,14 @@ async function isFetchedNewFeed(path: string): Promise<FeedInfo | null> {
 
     const feedStartDate = parse(
       feedInfo.feed_start_date,
-      "yyyyMMdd",
+      'yyyyMMdd',
       new Date(),
     );
 
     const result = await sql`
       SELECT * FROM feed_versions WHERE feed_source_id = 1 AND feed_start_date = ${format(
         feedStartDate,
-        "yyyyMMdd",
+        'yyyyMMdd',
       )}
       `;
 
@@ -140,25 +140,25 @@ async function isFetchedNewFeed(path: string): Promise<FeedInfo | null> {
 
 async function createNewFeedVersion(feedInfo: FeedInfo): Promise<FeedVersion> {
   try {
-    const validFrom = parse(feedInfo.feed_start_date, "yyyyMMdd", new Date());
-    const validTo = parse(feedInfo.feed_end_date, "yyyyMMdd", new Date());
+    const validFrom = parse(feedInfo.feed_start_date, 'yyyyMMdd', new Date());
+    const validTo = parse(feedInfo.feed_end_date, 'yyyyMMdd', new Date());
 
     const feedVersion = await sql.transaction(async (sql) => {
       await sql`
         UPDATE feed_versions SET feed_end_date = ${format(
           subDays(validFrom, 1),
-          "yyyyMMdd",
+          'yyyyMMdd',
         )} WHERE feed_source_id = 1 AND feed_end_date > ${format(
           validFrom,
-          "yyyyMMdd",
+          'yyyyMMdd',
         )}
         `;
 
       const [feedVersion] = await sql`
         INSERT INTO feed_versions ("feed_source_id", "feed_start_date", "feed_end_date") VALUES (1, ${format(
           validFrom,
-          "yyyyMMdd",
-        )}, ${format(validTo, "yyyyMMdd")}) RETURNING *
+          'yyyyMMdd',
+        )}, ${format(validTo, 'yyyyMMdd')}) RETURNING *
         `;
 
       return feedVersion;
@@ -174,31 +174,31 @@ async function processFeedFiles(path: string, feedVersion: number) {
   try {
     const files = await fs.readdir(path);
     const promises = files.map(async (f) => {
-      if (f !== "feed_info.txt") {
-        if (f === "agency.txt") {
+      if (f !== 'feed_info.txt') {
+        if (f === 'agency.txt') {
           const data = await parseFile(`${path}/${f}`, agencySchema);
           saveAgencies(data, feedVersion);
-        } else if (f === "calendar.txt") {
+        } else if (f === 'calendar.txt') {
           const data = await parseFile(`${path}/${f}`, calendarSchema);
           saveCalendars(data, feedVersion);
-        } else if (f === "calendar_dates.txt") {
+        } else if (f === 'calendar_dates.txt') {
           const data = await parseFile(`${path}/${f}`, calendarDateSchema);
           saveCalendarDates(data, feedVersion);
-        } else if (f === "routes.txt") {
+        } else if (f === 'routes.txt') {
           const data = await parseFile(`${path}/${f}`, routeSchema);
           saveRoutes(data, feedVersion);
-        } else if (f === "shapes.txt") {
+        } else if (f === 'shapes.txt') {
           // error
           const data = await parseFile(`${path}/${f}`, shapeSchema);
           saveShapes(data, feedVersion);
-        } else if (f === "stops.txt") {
+        } else if (f === 'stops.txt') {
           const data = await parseFile(`${path}/${f}`, stopSchema);
           saveStops(data, feedVersion);
-        } else if (f === "stop_times.txt") {
+        } else if (f === 'stop_times.txt') {
           // error
           const data = await parseFile(`${path}/${f}`, stopTimeSchema);
           saveStopTimes(data, feedVersion);
-        } else if (f === "trips.txt") {
+        } else if (f === 'trips.txt') {
           // error
           const data = await parseFile(`${path}/${f}`, tripSchema);
           saveTrips(data, feedVersion);
@@ -342,7 +342,7 @@ async function saveShapes(shapes: Shape[], feedVersion: number) {
     console.log(batchesCount);
 
     for (let i = 0; i < batchesCount; i++) {
-      console.log("Uploading batch number:", i);
+      console.log('Uploading batch number:', i);
       await sql`
         INSERT INTO shapes ${sql(records.slice(i * 1000, i * 1000 + 1000))}
         `;
@@ -403,7 +403,7 @@ async function saveStopTimes(stopTimes: StopTime[], feedVersion: number) {
     console.log(batchesCount);
 
     for (let i = 0; i < batchesCount; i++) {
-      console.log("Uploading batch number:", i);
+      console.log('Uploading batch number:', i);
       await sql`
         INSERT INTO stop_times ${sql(records.slice(i * 1000, i * 1000 + 1000))}
         `;
@@ -447,7 +447,7 @@ async function saveTrips(trips: Trip[], feedVersion: number) {
     console.log(batchesCount);
 
     for (let i = 0; i < batchesCount; i++) {
-      console.log("Uploading batch number:", i);
+      console.log('Uploading batch number:', i);
       await sql`
         INSERT INTO trips ${sql(records.slice(i * 1000, i * 1000 + 1000))}
         `;
@@ -480,5 +480,5 @@ export async function syncFeed() {
 
   await cleanUp(feedPath);
 
-  console.log("Feed synced");
+  console.log('Feed synced');
 }

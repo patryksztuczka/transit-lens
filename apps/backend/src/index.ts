@@ -1,25 +1,25 @@
-import { Hono } from "hono";
+import { Hono } from 'hono';
 
-import { Cron } from "croner";
-import { sql } from "./database/db";
-import { syncFeed } from "./jobs";
-import { timeout } from "hono/timeout";
+import { Cron } from 'croner';
+import { sql } from './database/db';
+import { syncFeed } from './jobs';
+import { timeout } from 'hono/timeout';
 
-import books from "./handlers/books";
-import stops from "./handlers/stops";
-import { cors } from "hono/cors";
+import books from './handlers/books';
+import stops from './handlers/stops';
+import { cors } from 'hono/cors';
 
-const app = new Hono().basePath("/api");
+const app = new Hono().basePath('/api');
 
-app.use("/*", cors());
+app.use('/*', cors());
 
-app.get("/", async (c) => {
+app.get('/', async (c) => {
   await syncFeed();
-  return c.text("DONE!");
+  return c.text('DONE!');
 });
 
-app.route("/books", books);
-app.route("/stops", stops);
+app.route('/books', books);
+app.route('/stops', stops);
 
 // new Cron(
 //   "* * * * * *",

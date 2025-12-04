@@ -1,4 +1,4 @@
-import z from "zod";
+import z from 'zod';
 
 export const agencySchema = z.object({
   agency_id: z.string(),
