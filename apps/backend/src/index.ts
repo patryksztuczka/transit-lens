@@ -1,10 +1,12 @@
 import { Hono } from 'hono';
 
-import { syncFeed } from './jobs';
+import { syncFeed } from './jobs/gtfs-static';
 
 import stops from './handlers/stops';
 import routes from './handlers/routes';
 import { cors } from 'hono/cors';
+
+import './jobs/gtfs-realtime';
 
 const app = new Hono().basePath('/api');
 

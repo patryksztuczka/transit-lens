@@ -9,7 +9,6 @@ import {
   feedInfoSchema,
   type Agency,
   type FeedInfo,
-  type FeedVersion,
   calendarSchema,
   type Calendar,
   calendarDateSchema,
