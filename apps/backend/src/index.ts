@@ -1,12 +1,9 @@
 import { Hono } from 'hono';
 
-import { Cron } from 'croner';
-import { sql } from './database/db';
 import { syncFeed } from './jobs';
-import { timeout } from 'hono/timeout';
 
-import books from './handlers/books';
 import stops from './handlers/stops';
+import routes from './handlers/routes';
 import { cors } from 'hono/cors';
 
 const app = new Hono().basePath('/api');
@@ -18,8 +15,8 @@ app.get('/', async (c) => {
   return c.text('DONE!');
 });
 
-app.route('/books', books);
 app.route('/stops', stops);
+app.route('/routes', routes);
 
 // new Cron(
 //   "* * * * * *",
@@ -31,4 +28,7 @@ app.route('/stops', stops);
 //   },
 // );
 
-export default app;
+export default {
+  fetch: app.fetch,
+  idleTimeout: 60,
+};

@@ -27,7 +27,7 @@ import {
 } from '../schemas/gtfs-static';
 import { stripBOM } from '../lib/utils';
 import z from 'zod';
-import { sql } from '../database/db';
+import { prisma } from '../db';
 
 function parseCsvStream<T extends z.ZodType>(
   stream: Readable,
@@ -114,95 +114,89 @@ async function isFetchedNewFeed(path: string): Promise<FeedInfo | null> {
       new Date(),
     );
 
-    const result = await sql`
-      SELECT * FROM feed_versions WHERE feed_source_id = 1 AND feed_start_date = ${format(
-        feedStartDate,
-        'yyyyMMdd',
-      )}
-      `;
-
-    const feedVersionSchema = z.object({
-      feed_version_id: z.number(),
-      feed_source_id: z.number(),
-      feed_start_date: z.string(),
-      feed_end_date: z.string(),
-      fetched_at: z.date(),
+    const existingVersion = await prisma.feedVersion.findFirst({
+      where: {
+        feedSourceId: 1,
+        feedStartDate: feedStartDate,
+      },
     });
 
-    const parsedResult = z.array(feedVersionSchema).parse(result);
-
-    return parsedResult.length === 0 ? feedInfo : null;
+    return existingVersion === null ? feedInfo : null;
   } catch (err) {
     console.error(err);
     return null;
   }
 }
 
-async function createNewFeedVersion(feedInfo: FeedInfo): Promise<FeedVersion> {
+async function createNewFeedVersion(feedInfo: FeedInfo) {
   try {
     const validFrom = parse(feedInfo.feed_start_date, 'yyyyMMdd', new Date());
     const validTo = parse(feedInfo.feed_end_date, 'yyyyMMdd', new Date());
 
-    const feedVersion = await sql.transaction(async (sql) => {
-      await sql`
-        UPDATE feed_versions SET feed_end_date = ${format(
-          subDays(validFrom, 1),
-          'yyyyMMdd',
-        )} WHERE feed_source_id = 1 AND feed_end_date > ${format(
-          validFrom,
-          'yyyyMMdd',
-        )}
-        `;
+    const feedVersion = await prisma.$transaction(async (tx) => {
+      await tx.feedVersion.updateMany({
+        where: {
+          feedSourceId: 1,
+          feedEndDate: {
+            gt: validFrom,
+          },
+        },
+        data: {
+          feedEndDate: subDays(validFrom, 1),
+        },
+      });
 
-      const [feedVersion] = await sql`
-        INSERT INTO feed_versions ("feed_source_id", "feed_start_date", "feed_end_date") VALUES (1, ${format(
-          validFrom,
-          'yyyyMMdd',
-        )}, ${format(validTo, 'yyyyMMdd')}) RETURNING *
-        `;
+      const feedVersion = await tx.feedVersion.create({
+        data: {
+          feedSourceId: 1,
+          feedStartDate: validFrom,
+          feedEndDate: validTo,
+        },
+      });
 
       return feedVersion;
     });
 
-    return feedVersion;
+    return {
+      feed_version_id: feedVersion.id,
+      feed_source_id: feedVersion.feedSourceId,
+      feed_start_date: format(feedVersion.feedStartDate!, 'yyyyMMdd'),
+      feed_end_date: format(feedVersion.feedEndDate!, 'yyyyMMdd'),
+      fetched_at: feedVersion.fetchedAt,
+    };
   } catch (err) {
     console.error(err);
+    throw err;
   }
 }
 
-async function processFeedFiles(path: string, feedVersion: number) {
+async function processFeedFiles(files: string[], feedVersion: number) {
   try {
-    const files = await fs.readdir(path);
     const promises = files.map(async (f) => {
-      if (f !== 'feed_info.txt') {
-        if (f === 'agency.txt') {
-          const data = await parseFile(`${path}/${f}`, agencySchema);
-          saveAgencies(data, feedVersion);
-        } else if (f === 'calendar.txt') {
-          const data = await parseFile(`${path}/${f}`, calendarSchema);
-          saveCalendars(data, feedVersion);
-        } else if (f === 'calendar_dates.txt') {
-          const data = await parseFile(`${path}/${f}`, calendarDateSchema);
-          saveCalendarDates(data, feedVersion);
-        } else if (f === 'routes.txt') {
-          const data = await parseFile(`${path}/${f}`, routeSchema);
-          saveRoutes(data, feedVersion);
-        } else if (f === 'shapes.txt') {
-          // error
-          const data = await parseFile(`${path}/${f}`, shapeSchema);
-          saveShapes(data, feedVersion);
-        } else if (f === 'stops.txt') {
-          const data = await parseFile(`${path}/${f}`, stopSchema);
-          saveStops(data, feedVersion);
-        } else if (f === 'stop_times.txt') {
-          // error
-          const data = await parseFile(`${path}/${f}`, stopTimeSchema);
-          saveStopTimes(data, feedVersion);
-        } else if (f === 'trips.txt') {
-          // error
-          const data = await parseFile(`${path}/${f}`, tripSchema);
-          saveTrips(data, feedVersion);
-        }
+      const fileName = f.split('/').at(-1);
+      if (fileName === 'agency.txt') {
+        const data = await parseFile(f, agencySchema);
+        await saveAgencies(data, feedVersion);
+      } else if (fileName === 'calendar.txt') {
+        const data = await parseFile(f, calendarSchema);
+        await saveCalendars(data, feedVersion);
+      } else if (fileName === 'calendar_dates.txt') {
+        const data = await parseFile(f, calendarDateSchema);
+        await saveCalendarDates(data, feedVersion);
+      } else if (fileName === 'routes.txt') {
+        const data = await parseFile(f, routeSchema);
+        await saveRoutes(data, feedVersion);
+      } else if (fileName === 'shapes.txt') {
+        // error
+        const data = await parseFile(f, shapeSchema);
+        await saveShapes(data, feedVersion);
+      } else if (fileName === 'stops.txt') {
+        const data = await parseFile(f, stopSchema);
+        await saveStops(data, feedVersion);
+      } else if (fileName === 'trips.txt') {
+        // error
+        const data = await parseFile(f, tripSchema);
+        await saveTrips(data, feedVersion);
       }
     });
     await Promise.all(promises);
@@ -212,129 +206,92 @@ async function processFeedFiles(path: string, feedVersion: number) {
 }
 
 async function saveAgencies(agencies: Agency[], feedVersion: number) {
-  const records = agencies.map((a) => {
-    const {
-      agency_id,
-      agency_name,
-      agency_url,
-      agency_timezone,
-      agency_phone,
-      agency_lang,
-      agency_fare_url,
-      agency_email,
-      cemv_support,
-    } = a;
-    return {
-      agency_id,
-      feed_version_id: feedVersion,
-      agency_name,
-      agency_url,
-      agency_timezone,
-      agency_phone,
-      agency_lang,
-      agency_fare_url,
-      agency_email,
-      cemv_support,
-    };
+  const records = agencies.map((a) => ({
+    agencyId: a.agency_id,
+    feedVersionId: feedVersion,
+    agencyName: a.agency_name,
+    agencyUrl: a.agency_url,
+    agencyTimezone: a.agency_timezone,
+    agencyPhone: a.agency_phone ?? null,
+    agencyLang: a.agency_lang ?? null,
+    agencyFareUrl: a.agency_fare_url ?? null,
+    agencyEmail: a.agency_email ?? null,
+    cemvSupport: a.cemv_support ? parseInt(a.cemv_support) : 0,
+  }));
+
+  await prisma.agency.createMany({
+    data: records,
+    skipDuplicates: true,
   });
-  await sql`
-    INSERT INTO agencies ${sql(records)}
-    `;
 }
 
 async function saveCalendars(calendars: Calendar[], feedVersion: number) {
-  const records = calendars.map((c) => {
-    const {
-      service_id,
-      monday,
-      tuesday,
-      wednesday,
-      thursday,
-      friday,
-      saturday,
-      sunday,
-      start_date,
-      end_date,
-    } = c;
-    return {
-      service_id,
-      feed_version_id: feedVersion,
-      monday,
-      tuesday,
-      wednesday,
-      thursday,
-      friday,
-      saturday,
-      sunday,
-      start_date,
-      end_date,
-    };
+  const records = calendars.map((c) => ({
+    serviceId: c.service_id,
+    feedVersionId: feedVersion,
+    monday: parseInt(c.monday),
+    tuesday: parseInt(c.tuesday),
+    wednesday: parseInt(c.wednesday),
+    thursday: parseInt(c.thursday),
+    friday: parseInt(c.friday),
+    saturday: parseInt(c.saturday),
+    sunday: parseInt(c.sunday),
+    startDate: c.start_date,
+    endDate: c.end_date,
+  }));
+
+  await prisma.calendar.createMany({
+    data: records,
+    skipDuplicates: true,
   });
-  await sql`
-    INSERT INTO calendars ${sql(records)}
-    `;
 }
 
 async function saveCalendarDates(
   calendarDates: CalendarDate[],
   feedVersion: number,
 ) {
-  const records = calendarDates.map((c) => {
-    const { service_id, date, exception_type } = c;
-    return {
-      service_id,
-      feed_version_id: feedVersion,
-      date,
-      exception_type,
-    };
+  if (calendarDates.length === 0) return;
+
+  const records = calendarDates.map((c) => ({
+    serviceId: c.service_id,
+    feedVersionId: feedVersion,
+    date: c.date,
+    exceptionType: parseInt(c.exception_type),
+  }));
+
+  await prisma.calendarDate.createMany({
+    data: records,
+    skipDuplicates: true,
   });
-  if (records.length === 0) return;
-  await sql`
-    INSERT INTO calendar_dates ${sql(records)}
-    `;
 }
 
 async function saveRoutes(routes: Route[], feedVersion: number) {
-  const records = routes.map((r) => {
-    const {
-      route_id,
-      agency_id,
-      route_short_name,
-      route_long_name,
-      route_desc,
-      route_type,
-      route_color,
-      route_text_color,
-    } = r;
-    return {
-      route_id,
-      feed_version_id: feedVersion,
-      agency_id,
-      route_short_name,
-      route_long_name,
-      route_desc: route_desc === undefined ? null : route_desc,
-      route_type,
-      route_color: route_color === undefined ? null : route_color,
-      route_text_color:
-        route_text_color === undefined ? null : route_text_color,
-    };
+  const records = routes.map((r) => ({
+    routeId: r.route_id,
+    feedVersionId: feedVersion,
+    agencyId: r.agency_id,
+    routeShortName: r.route_short_name,
+    routeLongName: r.route_long_name,
+    routeDesc: r.route_desc ?? null,
+    routeType: parseInt(r.route_type),
+    routeColor: r.route_color ?? null,
+    routeTextColor: r.route_text_color ?? null,
+  }));
+
+  await prisma.route.createMany({
+    data: records,
+    skipDuplicates: true,
   });
-  await sql`
-    INSERT INTO routes ${sql(records)}
-    `;
 }
 
 async function saveShapes(shapes: Shape[], feedVersion: number) {
-  const records = shapes.map((s) => {
-    const { shape_id, shape_pt_lat, shape_pt_lon, shape_pt_sequence } = s;
-    return {
-      shape_id,
-      feed_version_id: feedVersion,
-      shape_pt_lat,
-      shape_pt_lon,
-      shape_pt_sequence,
-    };
-  });
+  const records = shapes.map((s) => ({
+    shapeId: s.shape_id,
+    feedVersionId: feedVersion,
+    shapePtLat: parseFloat(s.shape_pt_lat),
+    shapePtLon: parseFloat(s.shape_pt_lon),
+    shapePtSequence: parseInt(s.shape_pt_sequence),
+  }));
 
   if (records.length > 1000) {
     const batchesCount =
@@ -343,59 +300,48 @@ async function saveShapes(shapes: Shape[], feedVersion: number) {
 
     for (let i = 0; i < batchesCount; i++) {
       console.log('Uploading batch number:', i);
-      await sql`
-        INSERT INTO shapes ${sql(records.slice(i * 1000, i * 1000 + 1000))}
-        `;
+      await prisma.shape.createMany({
+        data: records.slice(i * 1000, i * 1000 + 1000),
+        skipDuplicates: true,
+      });
     }
   } else {
-    await sql`
-      INSERT INTO shapes ${sql(records)}
-      `;
+    await prisma.shape.createMany({
+      data: records,
+      skipDuplicates: true,
+    });
   }
 }
 
 async function saveStops(stops: Stop[], feedVersion: number) {
-  const records = stops.map((s) => {
-    const { stop_id, stop_code, stop_name, stop_lat, stop_lon, zone_id } = s;
-    return {
-      stop_id,
-      feed_version_id: feedVersion,
-      stop_code: stop_code === undefined ? null : stop_code,
-      stop_name,
-      stop_lat,
-      stop_lon,
-      zone_id: zone_id === undefined ? null : zone_id,
-    };
+  const records = stops.map((s) => ({
+    stopId: s.stop_id,
+    feedVersionId: feedVersion,
+    stopCode: s.stop_code ?? null,
+    stopName: s.stop_name,
+    stopLat: parseFloat(s.stop_lat),
+    stopLon: parseFloat(s.stop_lon),
+    zoneId: s.zone_id ?? null,
+  }));
+
+  await prisma.stop.createMany({
+    data: records,
+    skipDuplicates: true,
   });
-  await sql`
-    INSERT INTO stops ${sql(records)}
-    `;
 }
 
 async function saveStopTimes(stopTimes: StopTime[], feedVersion: number) {
-  const records = stopTimes.map((s) => {
-    const {
-      trip_id,
-      arrival_time,
-      departure_time,
-      stop_id,
-      stop_sequence,
-      stop_headsign,
-      pickup_type,
-      drop_off_type,
-    } = s;
-    return {
-      trip_id,
-      feed_version_id: feedVersion,
-      arrival_time,
-      departure_time,
-      stop_id,
-      stop_sequence,
-      stop_headsign: stop_headsign === undefined ? null : stop_headsign,
-      pickup_type: pickup_type === undefined ? null : pickup_type,
-      drop_off_type: drop_off_type === undefined ? null : drop_off_type,
-    };
-  });
+  const records = stopTimes.map((s) => ({
+    tripId: s.trip_id,
+    feedVersionId: feedVersion,
+    arrivalTime: s.arrival_time,
+    departureTime: s.departure_time,
+    stopId: s.stop_id,
+    stopSequence: parseInt(s.stop_sequence),
+    stopHeadsign: s.stop_headsign ?? null,
+    pickupType: s.pickup_type ? parseInt(s.pickup_type) : null,
+    dropOffType: s.drop_off_type ? parseInt(s.drop_off_type) : null,
+  }));
 
   if (records.length > 1000) {
     const batchesCount =
@@ -403,43 +349,34 @@ async function saveStopTimes(stopTimes: StopTime[], feedVersion: number) {
     console.log(batchesCount);
 
     for (let i = 0; i < batchesCount; i++) {
-      console.log('Uploading batch number:', i);
-      await sql`
-        INSERT INTO stop_times ${sql(records.slice(i * 1000, i * 1000 + 1000))}
-        `;
+      console.log('Uploading stop_times:', i);
+      await prisma.stopTime.createMany({
+        data: records.slice(i * 1000, i * 1000 + 1000),
+        skipDuplicates: true,
+      });
     }
   } else {
-    await sql`
-      INSERT INTO stop_times ${sql(records)}
-      `;
+    await prisma.stopTime.createMany({
+      data: records,
+      skipDuplicates: true,
+    });
   }
 }
 
 async function saveTrips(trips: Trip[], feedVersion: number) {
-  const records = trips.map((t) => {
-    const {
-      trip_id,
-      route_id,
-      service_id,
-      trip_headsign,
-      direction_id,
-      shape_id,
-      wheelchair_accessible,
-      brigade,
-    } = t;
-    return {
-      trip_id,
-      feed_version_id: feedVersion,
-      route_id,
-      service_id,
-      trip_headsign: trip_headsign === undefined ? null : trip_headsign,
-      direction_id: direction_id === undefined ? null : direction_id,
-      shape_id: shape_id === undefined ? null : shape_id,
-      wheelchair_accessible:
-        wheelchair_accessible === undefined ? null : wheelchair_accessible,
-      brigade: brigade === undefined ? null : brigade,
-    };
-  });
+  const records = trips.map((t) => ({
+    tripId: t.trip_id,
+    feedVersionId: feedVersion,
+    routeId: t.route_id,
+    serviceId: t.service_id,
+    tripHeadsign: t.trip_headsign ?? null,
+    directionId: t.direction_id ? parseInt(t.direction_id) : null,
+    shapeId: t.shape_id ?? null,
+    wheelchairAccessible: t.wheelchair_accessible
+      ? parseInt(t.wheelchair_accessible)
+      : null,
+    brigade: t.brigade ?? null,
+  }));
 
   if (records.length > 1000) {
     const batchesCount =
@@ -447,15 +384,17 @@ async function saveTrips(trips: Trip[], feedVersion: number) {
     console.log(batchesCount);
 
     for (let i = 0; i < batchesCount; i++) {
-      console.log('Uploading batch number:', i);
-      await sql`
-        INSERT INTO trips ${sql(records.slice(i * 1000, i * 1000 + 1000))}
-        `;
+      console.log('Uploading trips:', i);
+      await prisma.trip.createMany({
+        data: records.slice(i * 1000, i * 1000 + 1000),
+        skipDuplicates: true,
+      });
     }
   } else {
-    await sql`
-      INSERT INTO trips ${sql(records)}
-      `;
+    await prisma.trip.createMany({
+      data: records,
+      skipDuplicates: true,
+    });
   }
 }
 
@@ -476,7 +415,14 @@ export async function syncFeed() {
 
   const version = await createNewFeedVersion(feedInfo);
 
-  await processFeedFiles(feedPath, version.feed_version_id);
+  const files = (await fs.readdir(feedPath))
+    .filter((f) => f !== 'feed_info.txt' && f !== 'stop_times.txt')
+    .map((f) => `${feedPath}/${f}`);
+
+  await processFeedFiles(files, version.feed_version_id);
+
+  const data = await parseFile(`${feedPath}/stop_times.txt`, stopTimeSchema);
+  await saveStopTimes(data, version.feed_version_id);
 
   await cleanUp(feedPath);
 

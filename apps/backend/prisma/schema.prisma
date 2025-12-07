@@ -1,0 +1,165 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model FeedSource {
+  id            Int           @id @default(autoincrement())
+  name          String        @db.VarChar(100)
+  gtfsStaticUrl String        @map("gtfs_static_url")
+  gtfsRtUrl     String        @map("gtfs_rt_url")
+  feedVersions  FeedVersion[]
+
+  @@map("feed_sources")
+}
+
+model FeedVersion {
+  id            Int            @id @default(autoincrement())
+  feedSourceId  Int            @map("feed_source_id")
+  feedStartDate DateTime?      @map("feed_start_date") @db.Date
+  feedEndDate   DateTime?      @map("feed_end_date") @db.Date
+  fetchedAt     DateTime       @default(now()) @map("fetched_at")
+  feedSource    FeedSource     @relation(fields: [feedSourceId], references: [id], onDelete: Cascade)
+  agencies      Agency[]
+  calendars     Calendar[]
+  calendarDates CalendarDate[]
+  routes        Route[]
+  shapes        Shape[]
+  stops         Stop[]
+  trips         Trip[]
+  stopTimes     StopTime[]
+
+  @@map("feed_versions")
+}
+
+model Agency {
+  agencyId       String      @map("agency_id") @db.VarChar(10)
+  feedVersionId  Int         @map("feed_version_id")
+  agencyName     String      @map("agency_name") @db.VarChar(255)
+  agencyUrl      String      @map("agency_url")
+  agencyTimezone String      @map("agency_timezone") @db.VarChar(50)
+  agencyPhone    String?     @map("agency_phone") @db.VarChar(50)
+  agencyLang     String?     @map("agency_lang") @db.VarChar(10)
+  agencyFareUrl  String?     @map("agency_fare_url")
+  agencyEmail    String?     @map("agency_email") @db.VarChar(255)
+  cemvSupport    Int         @default(0) @map("cemv_support") // 0, 1, or 2
+  feedVersion    FeedVersion @relation(fields: [feedVersionId], references: [id], onDelete: Cascade)
+  routes         Route[]
+
+  @@id([agencyId, feedVersionId])
+  @@map("agencies")
+}
+
+model Calendar {
+  serviceId     String      @map("service_id") @db.VarChar(50)
+  feedVersionId Int         @map("feed_version_id")
+  monday        Int         @map("monday") // 0 or 1
+  tuesday       Int         @map("tuesday") // 0 or 1
+  wednesday     Int         @map("wednesday") // 0 or 1
+  thursday      Int         @map("thursday") // 0 or 1
+  friday        Int         @map("friday") // 0 or 1
+  saturday      Int         @map("saturday") // 0 or 1
+  sunday        Int         @map("sunday") // 0 or 1
+  startDate     String      @map("start_date") @db.VarChar(8)
+  endDate       String      @map("end_date") @db.VarChar(8)
+  feedVersion   FeedVersion @relation(fields: [feedVersionId], references: [id], onDelete: Cascade)
+
+  @@id([serviceId, feedVersionId])
+  @@map("calendars")
+}
+
+model CalendarDate {
+  serviceId     String      @map("service_id") @db.VarChar(50)
+  feedVersionId Int         @map("feed_version_id")
+  date          String      @db.VarChar(8)
+  exceptionType Int         @map("exception_type") // 1 or 2
+  feedVersion   FeedVersion @relation(fields: [feedVersionId], references: [id], onDelete: Cascade)
+
+  @@id([serviceId, feedVersionId, date])
+  @@map("calendar_dates")
+}
+
+model Route {
+  routeId        String      @map("route_id") @db.VarChar(50)
+  feedVersionId  Int         @map("feed_version_id")
+  agencyId       String      @map("agency_id") @db.VarChar(10)
+  routeShortName String      @map("route_short_name") @db.VarChar(50)
+  routeLongName  String      @map("route_long_name")
+  routeDesc      String?     @map("route_desc")
+  routeType      Int         @map("route_type")
+  routeColor     String?     @map("route_color") @db.VarChar(6)
+  routeTextColor String?     @map("route_text_color") @db.VarChar(6)
+  feedVersion    FeedVersion @relation(fields: [feedVersionId], references: [id], onDelete: Cascade)
+  agency         Agency      @relation(fields: [agencyId, feedVersionId], references: [agencyId, feedVersionId])
+  trips          Trip[]
+
+  @@id([routeId, feedVersionId])
+  @@map("routes")
+}
+
+model Shape {
+  shapeId         String      @map("shape_id") @db.VarChar(50)
+  feedVersionId   Int         @map("feed_version_id")
+  shapePtLat      Float       @map("shape_pt_lat") @db.DoublePrecision
+  shapePtLon      Float       @map("shape_pt_lon") @db.DoublePrecision
+  shapePtSequence Int         @map("shape_pt_sequence")
+  feedVersion     FeedVersion @relation(fields: [feedVersionId], references: [id], onDelete: Cascade)
+
+  @@id([shapeId, feedVersionId, shapePtSequence])
+  @@map("shapes")
+}
+
+model Stop {
+  stopId        String      @map("stop_id") @db.VarChar(50)
+  feedVersionId Int         @map("feed_version_id")
+  stopCode      String?     @map("stop_code") @db.VarChar(50)
+  stopName      String      @map("stop_name") @db.VarChar(255)
+  stopLat       Float       @map("stop_lat") @db.DoublePrecision
+  stopLon       Float       @map("stop_lon") @db.DoublePrecision
+  zoneId        String?     @map("zone_id") @db.VarChar(10)
+  feedVersion   FeedVersion @relation(fields: [feedVersionId], references: [id], onDelete: Cascade)
+  stopTimes     StopTime[]
+
+  @@id([stopId, feedVersionId])
+  @@map("stops")
+}
+
+model Trip {
+  tripId               String      @map("trip_id") @db.VarChar(100)
+  feedVersionId        Int         @map("feed_version_id")
+  routeId              String      @map("route_id") @db.VarChar(50)
+  serviceId            String      @map("service_id") @db.VarChar(50)
+  tripHeadsign         String?     @map("trip_headsign") @db.VarChar(255)
+  directionId          Int?        @map("direction_id") // 0 or 1
+  shapeId              String?     @map("shape_id") @db.VarChar(50)
+  wheelchairAccessible Int?        @map("wheelchair_accessible") // 0, 1, or 2
+  brigade              String?     @map("brigade") @db.VarChar(50)
+  feedVersion          FeedVersion @relation(fields: [feedVersionId], references: [id], onDelete: Cascade)
+  route                Route       @relation(fields: [routeId, feedVersionId], references: [routeId, feedVersionId])
+  stopTimes            StopTime[]
+
+  @@id([tripId, feedVersionId])
+  @@map("trips")
+}
+
+model StopTime {
+  tripId        String      @map("trip_id") @db.VarChar(100)
+  feedVersionId Int         @map("feed_version_id")
+  arrivalTime   String      @map("arrival_time") @db.VarChar(8)
+  departureTime String      @map("departure_time") @db.VarChar(8)
+  stopId        String      @map("stop_id") @db.VarChar(50)
+  stopSequence  Int         @map("stop_sequence")
+  stopHeadsign  String?     @map("stop_headsign") @db.VarChar(255)
+  pickupType    Int?        @map("pickup_type") // 0, 1, 2, or 3
+  dropOffType   Int?        @map("drop_off_type") // 0, 1, 2, or 3
+  feedVersion   FeedVersion @relation(fields: [feedVersionId], references: [id], onDelete: Cascade)
+  trip          Trip        @relation(fields: [tripId, feedVersionId], references: [tripId, feedVersionId])
+  stop          Stop        @relation(fields: [stopId, feedVersionId], references: [stopId, feedVersionId])
+
+  @@id([tripId, feedVersionId, stopSequence])
+  @@map("stop_times")
+}

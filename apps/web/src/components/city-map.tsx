@@ -1,28 +1,27 @@
 import { useQuery } from '@tanstack/react-query';
 import { Map, Marker as MapMarker, Popup } from 'mapbox-gl';
-import {
-  useEffect,
-  useEffectEvent,
-  useRef,
-  useState,
-  type RefObject,
-} from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import z from 'zod';
-
-import { stopSchema } from '../schemas/gtfs';
-import 'mapbox-gl/dist/mapbox-gl.css';
-import { cn } from '../lib/utils';
 import { BusFront } from 'lucide-react';
+import { useAtom } from 'jotai';
+import 'mapbox-gl/dist/mapbox-gl.css';
+
+import { stopSchema, type Stop } from '../schemas/gtfs';
+import { cn } from '../lib/utils';
+import { selectedRouteIdAtom, selectedStopAtom } from '../jotai/map';
+import { getRouteStops } from '../data-access-layer/routes';
 
 const Marker = ({
   stop,
   mapRef,
   active = false,
+  className,
   onClick,
 }: {
   stop: z.infer<typeof stopSchema>;
   mapRef: RefObject<Map>;
   active?: boolean;
+  className?: string;
   onClick?: () => void;
 }) => {
   const markerRef = useRef<MapMarker>(null);
@@ -37,7 +36,7 @@ const Marker = ({
       anchor: 'center',
       element: markerContainerRef.current,
     })
-      .setLngLat([stop.stop_lon, stop.stop_lat])
+      .setLngLat([stop.stopLon, stop.stopLat])
       .addTo(mapRef.current);
 
     markerRef.current = marker;
@@ -48,8 +47,8 @@ const Marker = ({
       closeButton: false,
       closeOnClick: false,
     })
-      .setLngLat([stop.stop_lon, stop.stop_lat])
-      .setText(stop.stop_name);
+      .setLngLat([stop.stopLon, stop.stopLat])
+      .setText(stop.stopName);
 
     popupRef.current = popup;
 
@@ -94,6 +93,7 @@ const Marker = ({
           active
             ? 'h-8 w-8 border-yellow-500 bg-yellow-500 shadow-lg shadow-yellow-400/50 hover:bg-yellow-500'
             : 'h-4 w-4 border-yellow-700 bg-amber-900 hover:border-yellow-500 hover:bg-red-800',
+          className,
         )}
         onClick={onClick}
         onMouseEnter={handleMouseEnter}
@@ -113,6 +113,19 @@ export const CityMap = () => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const [startStopId, setStartStopId] = useState<string | null>();
   const [endStopId, setEndStopId] = useState<string | null>();
+  const [selectedStop, setSelectedStop] = useAtom(selectedStopAtom);
+  const [selectedRouteId] = useAtom(selectedRouteIdAtom);
+
+  const { data: routeStops } = useQuery({
+    queryKey: ['routeStops', selectedRouteId],
+    queryFn: () => getRouteStops(selectedRouteId!),
+    enabled: selectedRouteId != null,
+    initialData: [],
+  });
+
+  const routeStopsIds = routeStops.map((rs) => rs.stop.stopId);
+
+  console.log(routeStops);
 
   const { data: stops } = useQuery({
     queryKey: ['stops'],
@@ -120,17 +133,23 @@ export const CityMap = () => {
     queryFn: async () => {
       const res = await fetch('http://localhost:3000/api/stops');
       const data = await res.json();
-      const parsedData = z.array(stopSchema).parse(data);
+
+      const chunks = Array.isArray(data[0]) ? data : [data];
+
+      const flattened = chunks.flat();
+
+      const parsedData = z.array(stopSchema).parse(flattened);
 
       return parsedData;
     },
   });
 
-  const handlePickStops = (stopId: string) => {
+  const handlePickStops = (stop: Stop) => {
     if (startStopId == null) {
-      setStartStopId(stopId);
-    } else if (endStopId == null && stopId !== startStopId) {
-      setEndStopId(stopId);
+      setStartStopId(stop.stopId);
+      setSelectedStop(stop);
+    } else if (endStopId == null && stop.stopId !== startStopId) {
+      setEndStopId(stop.stopId);
     }
   };
 
@@ -166,11 +185,16 @@ export const CityMap = () => {
       {mapRef.current &&
         stops.map((s) => (
           <Marker
-            key={s.stop_id}
+            key={s.stopId}
             stop={s}
             mapRef={mapRef}
-            active={s.stop_id === startStopId || s.stop_id === endStopId}
-            onClick={() => handlePickStops(s.stop_id)}
+            active={s.stopId === startStopId || s.stopId === endStopId}
+            onClick={() => handlePickStops(s)}
+            className={cn(
+              selectedRouteId == null || routeStopsIds.includes(s.stopId)
+                ? 'opacity-100'
+                : 'pointer-events-none opacity-10',
+            )}
           />
         ))}
     </div>
